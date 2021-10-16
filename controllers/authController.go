@@ -38,12 +38,19 @@ func SignUp(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 1 {
 		w.Header().Set("Content-Header", "application/json")
 		io.WriteString(w, `{"message": "user registered"}`)
-		return
 	} else if rowsAffected == 0 {
 		w.Header().Set("Content-Header", "application/json")
 		io.WriteString(w, `{"message": "user failed to register"}`)
+	}
+
+	cookie, err := RegisterToken(username)
+	if err != nil {
+		w.Header().Set("Content-Header", "application/json")
+		io.WriteString(w, `{"message": "failed to register cookie"}`)
 		return
 	}
+
+	http.SetCookie(w, &cookie)
 
 }
 
@@ -66,28 +73,15 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Println("user validated.")
 
-	//register token on cookie.
-	// first generate token.
-	claims := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
-		Issuer:    username,
-		ExpiresAt: time.Now().Add(time.Hour * 24).Unix(),
-	})
-
-	token, err := claims.SignedString(secretKey)
+	cookie, err := RegisterToken(username)
 	if err != nil {
 		w.Header().Set("Content-Header", "application/json")
-		io.WriteString(w, `{"message": "could not login"}`)
-		checkErr(err)
-	}
-
-	cookie := http.Cookie{
-		Name:     "jwt",
-		Value:    token,
-		Expires:  time.Now().Add(time.Hour * 24),
-		HttpOnly: true,
+		io.WriteString(w, `{"message": "failed to register cookie"}`)
+		return
 	}
 
 	http.SetCookie(w, &cookie)
+
 	w.Header().Set("Content-Header", "application/json")
 	io.WriteString(w, `{"message": "logged in successfully!"}`)
 
@@ -103,6 +97,7 @@ func hashPassword(pass string) []byte {
 func checkUser(username string) bool {
 	rows, err := database.DB.Query("select count(*) from users where username = ? ", username)
 	checkErr(err)
+	defer rows.Close()
 
 	var count int
 	for rows.Next() {
@@ -133,6 +128,7 @@ func getUserData(username string) models.User {
 	fmt.Println("getting user data for username:", username)
 	rows, err := database.DB.Query("select * from users where username = ?", username)
 	checkErr(err)
+	defer rows.Close()
 
 	for rows.Next() {
 		err = rows.Scan(&user.Username, &user.Password)
@@ -141,6 +137,28 @@ func getUserData(username string) models.User {
 	}
 
 	return user
+
+}
+
+func RegisterToken(username string) (http.Cookie, error) {
+	var cookie http.Cookie
+	//register token on cookie.
+	// first generate token.
+	claims := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
+		Issuer:    username,
+		ExpiresAt: time.Now().Add(time.Hour * 24).Unix(),
+	})
+
+	token, err := claims.SignedString(secretKey)
+
+	cookie = http.Cookie{
+		Name:     "jwt",
+		Value:    token,
+		Expires:  time.Now().Add(time.Hour * 24),
+		HttpOnly: true,
+	}
+
+	return cookie, err
 
 }
 
@@ -162,7 +180,7 @@ func AuthenticateToken(r *http.Request) (string, error) {
 		fmt.Println("token is valid")
 
 		// get user data from database
-		claims := token.Claims.(jwt.StandardClaims)
+		claims := token.Claims.(*jwt.StandardClaims)
 		username := claims.Issuer
 		return username, err
 

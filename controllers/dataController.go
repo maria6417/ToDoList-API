@@ -3,7 +3,6 @@ package controller
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -100,7 +99,7 @@ func GetItemsByStatus(status bool, username string) ([]models.ToDo, error) {
 func GetNewId(username string) int {
 
 	var id int
-	rows, err := database.DB.Query("select max(id)+1 from todo where username = ?", username)
+	rows, err := database.DB.Query("select IFNULL(max(id)+1, 1) from todo where username = ?", username)
 	checkErr(err)
 	defer rows.Close()
 
@@ -177,13 +176,11 @@ func UpdateItem(w http.ResponseWriter, r *http.Request) {
 	checkErr(err)
 
 	stmt, err := database.DB.Prepare(`update todo set completed = ? where id = ? and username = ?`)
+	// add feature later so i can also update title = ?, description = ?
 	checkErr(err)
 	defer stmt.Close()
 
 	completed := r.FormValue("completed")
-
-	fmt.Println("id ", id)
-	fmt.Println("completed", completed)
 
 	rs, err := stmt.Exec(completed == "true", id, username)
 	checkErr(err)
